@@ -226,27 +226,91 @@ class ComputeLoss:
                 t = t[j]  # filter
                 '''
                 
-                # Offsets
-                gxy = t[:, 2:4]  # grid xy
-                gxi = gain[[2, 3]] - gxy  # inverse
-                j, k = ((gxy % 1 < g) & (gxy > 1)).T
-                l, m = ((gxi % 1 < g) & (gxi > 1)).T
-                j = torch.stack((torch.ones_like(j), j, k, l, m))
-                t = t.repeat((5, 1, 1))[j]
-                offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
+                for ti in t:
+                    
+                    px1 = ti[2].int()
+                    py1 = ti[3].int()
+
+                    if torch.round(ti[2]) == px1:
+                        px2 = px1-1
+                    else:
+                        px2 = px1+1
+                    py2 = py1
+
+                    if torch.round(ti[3]) == py1:
+                        py3 = py1-1
+                    else:
+                        py3 = py1+1
+                    px3 = px1
+
+                    #px4 = px2
+                    #py4 = py3
+                    
+                    px = []#torch.stack((px1, px2, px3)).clamp_(0, gain[2] - 1)
+                    py = []#torch.stack((py1, py2, py3)).clamp_(0, gain[3] - 1)
+
+                    
+                    #gl = torch.round(ti[2]-ti[4]/2)
+                    #gr = torch.round(ti[2]+ti[4]/2)-1
+                    #gu = torch.round(ti[3]-ti[5]/2)
+                    #gd = torch.round(ti[3]+ti[5]/2)-1
+
+                    gl = (ti[2]-ti[4]/2).int()
+                    gr = (ti[2]+ti[4]/2).int()
+                    gu = (ti[3]-ti[5]/2).int()
+                    gd = (ti[3]+ti[5]/2).int()
+
+                    if gr < gl:
+                        gl = ti[2].int()
+                        gr = ti[2].int()
+                    if gd < gu:
+                        gu = ti[3].int()
+                        gd = ti[3].int()
+
+                    if px1>=gl and px1<=gr and py1>=gu and py1<=gd:
+                        px.append(px1)
+                        py.append(py1)
+                    if px2>=gl and px2<=gr and py2>=gu and py2<=gd:
+                        px.append(px2)
+                        py.append(py2)
+                    if px3>=gl and px3<=gr and py3>=gu and py3<=gd:
+                        px.append(px3)
+                        py.append(py3)
+
+                    #gii = torch.arange(gl, gr+1).clamp_(0, gain[2] - 1).cuda()
+                    #gjj = torch.arange(gu, gd+1).clamp_(0, gain[3] - 1).cuda()
+                    
+                    gi.append(torch.stack(px))
+                    gj.append(torch.stack(py))
+
+                    px_len = len(px)
+                    gx.append(ti[2].repeat(px_len) - torch.stack(px))
+                    gy.append(ti[3].repeat(px_len) - torch.stack(py))
+                    gw.append(ti[4].repeat(px_len))
+                    gh.append(ti[5].repeat(px_len))
+                    
+                    a.append(ti[6].repeat(px_len))
+                    b.append(ti[0].repeat(px_len))
+                    c.append(ti[1].repeat(px_len))
+
+                if len(gi)>0 and len(gj)>0:
+                    gi = torch.cat(gi, -1).clamp_(0, gain[2] - 1).long()
+                    gj = torch.cat(gj, -1).clamp_(0, gain[3] - 1).long()
+                    gx = torch.cat(gx, -1)
+                    gy = torch.cat(gy, -1)
+                    gw = torch.cat(gw, -1)
+                    gh = torch.cat(gh, -1)
+                    a = torch.cat(a, -1).long()
+                    b = torch.cat(b, -1).long()
+                    c = torch.cat(c, -1).long()
+            #else:
+            #    return tcls, tbox, indices, anch
+            indices.append((b, a, gj, gi))  # image, anchor, grid indices
+            #tbox.append(torch.cat((gxy - gij, gwh), 1))  # box
+            if len(gi)>0 and len(gj)>0:
+                tbox.append(torch.stack((gx, gy, gw, gh)).T)  # box
             else:
-                t = targets[0]
-                offsets = 0
-
-            # Define
-            bc, gxy, gwh, a = t.chunk(4, 1)  # (image, class), grid xy, grid wh, anchors
-            a, (b, c) = a.long().view(-1), bc.long().T  # anchors, image, class
-            gij = (gxy - offsets).long()
-            gi, gj = gij.T  # grid indices
-
-            # Append
-            indices.append((b, a, gj.clamp_(0, gain[3] - 1), gi.clamp_(0, gain[2] - 1)))  # image, anchor, grid indices
-            tbox.append(torch.cat((gxy - gij, gwh), 1))  # box
+                tbox.append((gx, gy, gw, gh))
             anch.append(anchors[a])  # anchors
             tcls.append(c)  # class
 
